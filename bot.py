@@ -1,60 +1,74 @@
+import json
 import discord
 from discord.ext import commands
 from discord import app_commands
-from config.config import DISCORD_BOT_TOKEN, CHANNEL_ID, TARGET_USER_ID
-from markov_chain import load_messages, filter_user_messages, train_markov_chain, generate_sentence
+from config.config import DISCORD_BOT_TOKEN, CHANNEL_ID, TARGET_USER_ID, MESSAGE_FETCH_LIMIT
+from markov_chain import load_messages, filter_user_messages, train_markov_chain, generate_sentence, load_model_from_file, save_model_to_file
+from tqdm import tqdm
+from tqdm.asyncio import tqdm
 
-intents = discord.Intents.default()
-intents.messages = True
+intents = discord.Intents.all()
+client = discord.Client(intents=intents)
 
-class MyBot(commands.Bot):
-    def __init__(self):
-        super().__init__(command_prefix='!', intents=intents)
-        self.tree = app_commands.CommandTree(self)
-        self.markov_model = None
-
-    async def setup_hook(self):
-        await self.tree.sync()
-
-bot = MyBot()
-
-@bot.event
+@client.event
 async def on_ready():
-    print(f'Logged in as {bot.user}')
+    print(f'Logged in as {client.user}')
 
-@bot.tree.command(name="train", description="Train the Markov chain model with user messages")
-async def train(interaction: discord.Interaction):
-    if interaction.channel_id != int(CHANNEL_ID):
-        await interaction.response.send_message("このコマンドは指定されたチャンネルでのみ使用できます。", ephemeral=True)
+@client.event
+async def on_message(message):
+    if message.author == client.user:
         return
 
-    # メッセージをロード
+    print(f"メッセージを受信しました: {message.content}")
+    if client.user in message.mentions:
+        print("メンションが含まれています。")
+        await generate_sentence_response(message)
+
+async def train_model(message):
+    print("マルコフ連鎖モデルの学習を開始します...")
+    messages = await fetch_user_messages(message.channel, TARGET_USER_ID, MESSAGE_FETCH_LIMIT)
+    messages = messages
+    save_messages(messages, 'data/messages.json')
+    user_messages = filter_user_messages(messages)
+    client.markov_model = train_markov_chain(user_messages)
+    save_model_to_file(client.markov_model, 'data/markov_model.json')
+    
+    await message.channel.send("マルコフ連鎖モデルの学習が完了しました。")
+
+async def fetch_user_messages(channel, user_id, limit):
+    """特定のユーザーのメッセージを取得"""
+    print("メッセージを取得しています...")
     messages = load_messages('data/messages.json')
     
-    # 特定のユーザーのメッセージをフィルタリング
-    user_messages = filter_user_messages(messages, TARGET_USER_ID)
-    
-    # マルコフ連鎖モデルを学習
-    bot.markov_model = train_markov_chain(user_messages)
-    
-    await interaction.response.send_message("マルコフ連鎖モデルの学習が完了しました。")
+    async for message in tqdm(channel.history(limit=limit), desc="Fetching messages"):
+        v = {
+                'content': message.content,
+                'author_id': message.author.id,
+                'timestamp': message.created_at.isoformat()
+            }
+        if message.author.id == int(user_id) and v not in messages:
+            messages.append(v)
+    return messages
 
-@bot.tree.command(name="generate", description="Generate a sentence using the trained Markov chain model")
-async def generate(interaction: discord.Interaction):
-    if interaction.channel_id != int(CHANNEL_ID):
-        await interaction.response.send_message("このコマンドは指定されたチャンネルでのみ使用できます。", ephemeral=True)
-        return
+def save_messages(messages, file_path):
+    """メッセージをJSONファイルに保存"""
+    with open(file_path, 'w', encoding='utf-8') as file:
+        json.dump(messages, file, ensure_ascii=False, indent=4)
 
-    if bot.markov_model is None:
-        await interaction.response.send_message("モデルが学習されていません。まずは/trainコマンドを使用してください。", ephemeral=True)
+async def generate_sentence_response(message):
+    print("マルコフ連鎖モデルから文章を生成します...")
+    
+    client.markov_model = load_model_from_file('data/markov_model.json')
+    
+    if not hasattr(client, 'markov_model') or client.markov_model is None:
+        await message.channel.send("モデルが学習されていません。まずは学習してとメンションしてください。")
         return
     
-    # 文章を生成
-    generated_sentence = generate_sentence(bot.markov_model)
+    generated_sentence = generate_sentence(client.markov_model)
     
     if generated_sentence:
-        await interaction.response.send_message(generated_sentence)
+        await message.channel.send(generated_sentence.replace(" ", ""))
     else:
-        await interaction.response.send_message("文章を生成できませんでした。")
+        await message.channel.send("文章を生成できませんでした。")
 
-bot.run(DISCORD_BOT_TOKEN)
+client.run(DISCORD_BOT_TOKEN)
