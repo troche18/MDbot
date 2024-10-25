@@ -22,7 +22,7 @@ def load_messages(file_path):
         return []
 
 
-def filter_user_messages(messages):
+def filter_message_content(messages):
     """メッセージのみをフィルタリング"""
     return [msg['content'] for msg in messages]
 
@@ -38,7 +38,6 @@ def train_markov_chain(messages):
         texts.append(MeCab.Tagger('-Owakati').parse(i))
         
     parsed_text = "\n".join([i for i in format_text("\n".join(texts)).split('\n') if len(i) > 1])
-    print(parsed_text)
     
     if not parsed_text.strip():
         print("MeCabの解析結果が空です。")
@@ -60,7 +59,21 @@ def format_text(t):
 
 def generate_sentence(model):
     """マルコフ連鎖モデルから文章を生成"""
-    return model.make_short_sentence(max_chars=140, min_chars=20, tries=100)
+    return model.make_short_sentence(max_chars=140, min_chars=10, tries=50)
+
+
+def generate_sentence_with_word(model, sentence):
+    """文章に含まれる単語から始まるマルコフ連鎖モデルから文章を生成"""
+    if sentence:
+        words = MeCab.Tagger('-Owakati').parse(sentence).split()
+        for word in words:
+            if "<@" in word or ">" in word:
+                continue
+            try:
+                return model.make_sentence_with_start(beginning=word, max_chars=140, min_chars=10, tries=50)
+            except: 
+                pass
+    return generate_sentence(model)
 
 
 def debug_model(model):
@@ -108,9 +121,9 @@ def load_model_from_file(file_path):
 
 
 if __name__ == "__main__":
-    messages = filter_user_messages(load_messages('data/messages.json'))
+    messages = filter_message_content(load_messages('data/messages.json'))
     model = train_markov_chain(messages)
     save_model_to_file(model, 'data/markov_model.json')
     model = load_model_from_file('data/markov_model.json')
     # debug_model(model)
-    print(generate_sentence(model))
+    print(generate_sentence_with_word(model, "テスト文章"))

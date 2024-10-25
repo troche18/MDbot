@@ -1,0 +1,17 @@
+# Discordボットのトークン
+DISCORD_BOT_TOKEN = ''
+
+# ターゲットのユーザーID
+TARGET_USER_ID = ''
+
+# オーナーID
+OWNER_ID = ''
+
+# ロールID
+ROLE_ID = ''
+
+# マルコフ連鎖の状態サイズ（通常は2）
+MARKOV_STATE_SIZE = 3
+
+# メッセージ取得の制限数（必要に応じて調整）
+MESSAGE_FETCH_LIMIT = 5000
